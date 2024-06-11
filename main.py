@@ -5,7 +5,15 @@ TOKEN = "" # Insert your token here
 import os
 from os.path import isdir
 import subprocess as sp
-import discord
+try:
+    import discord
+except:
+    print("Error: Py-cord was not able to be imported, this means it is most likely not installed. Please install py-cord using 'pip'.")
+    exit(0)
+
+if os.system("which yt-dlp") != 0: # Check yt-dlp install
+    print("Error: the yt-dlp command was not found in path. Please install yt-dlp.")
+    exit(1)
 
 intent = discord.Intents.default()
 intent.message_content = True
