@@ -1,9 +1,11 @@
 TOKEN = "" # Insert your token here
 
+PREFIX='_'
 
-
+if TOKEN.strip() == "":
+    print("Error: No token was given. Please read the README file in the github repo.")
+    exit(1)
 import os
-from os.path import isdir
 import subprocess as sp
 try:
     import discord
@@ -33,20 +35,21 @@ async def audio_player_thread(queuepos, msg):
         await audio_player_thread(queue[0], msg)
 
 
-def get_info(search_term: str) -> tuple[str, str, str]|bool:
+def get_info(search_term: str) -> tuple[str, str, str, str]|bool:
     data = None
     try:
         if search_term[:8] == "https://":
-            data = sp.check_output(f"""yt-dlp --print "%(title)s\n%(channel)s\n%(original_url)s" "ytsearch:{search_term}" """, shell=True).decode()
+            data = sp.check_output(f"""yt-dlp --print "%(title)s\n%(channel)s\n%(original_url)s" --get-url "{search_term}" """, shell=True).decode()
         else:
-            data = sp.check_output(f"""yt-dlp --print "%(title)s\n%(channel)s\n%(original_url)s" "ytsearch:{search_term}" """, shell=True).decode()
+            data = sp.check_output(f"""yt-dlp --print "%(title)s\n%(channel)s\n%(original_url)s" --get-url "ytsearch:{search_term}" """, shell=True).decode()
     except:
         return False
     data = data.split("\n")
     title = data[0]
     artist = data[1]
     url = data[2]
-    return title, artist, url
+    streamurl = data[-2]
+    return title, artist, url, streamurl
 
 #Doing this cause the prebuilt embed constructor is weird
 def construct_embed(title=None, artist=None, footer=None, url=None) -> discord.Embed:
@@ -74,11 +77,11 @@ async def on_ready():
     print("Bot online")
 @client.event
 async def on_message(msg):
-    if msg.author == client.user:
+    if msg.author == client.user or msg.content[0] != PREFIX:
         return
     global vc
-    match msg.content.lower().split(" ")[0]:
-        case "_play":
+    match msg.content.lower().split(" ")[0][1:]:
+        case "play":
             search_term = " ".join(msg.content.split(" ")[1:])
             msgid = msg.id
             replymsg = await msg.reply("Searching...")
@@ -90,26 +93,21 @@ async def on_message(msg):
                 return
 
             # So my LSP doesn't give me 100+ errors:
-            title, artist, url = "", "", ""
+            title, artist, url, streamurl = "", "", "", ""
             if type(returndata) == tuple: 
-                title, artist, url = returndata
+                title, artist, url, streamurl = returndata
 
 
             if len(title) > 256 or len(artist) > 256: # Embed title and artists has a max size of 256 characters
                 new_msg_data = "Downloading '{title}' - '{artist}'"
             else:
-                new_msg_data = construct_embed(title, artist, "Downloading...", url)
+                new_msg_data = construct_embed(title, artist, "Grabbing stream URL...", url)
             if not os.path.isdir("/tmp/musicbot"):
                 os.mkdir("/tmp/musicbot/")
             await edit_message(replymsg, new_msg_data)
-            return_code = os.system(f""" yt-dlp -x --audio-format wav -o "/tmp/musicbot/{msgid}.wav" "{url}" """)
-
-            if return_code != 0:
-                print(f"yt-dlp did not return a successful exit code. if this is a bug please report it at https://github.com/KylaMKV/simple-discord-music-bot.\nError Info:\n\tURL: {url}\n\tReturn Code: {return_code}.\n\tMusicbot directory listing: {os.system('ls /tmp/musicbot')}")
-                await replymsg.reply("Error: Unable to download.")
 
 
-            queue.append({"filepath": f"/tmp/musicbot/{msgid}.wav", "title": title, "artist": artist})
+            queue.append({"filepath": streamurl, "title": title, "artist": artist})
             if vc != None and vc.is_playing() and len(queue) > 1:
 
                 if type(new_msg_data) == str:
@@ -119,15 +117,10 @@ async def on_message(msg):
                     await replymsg.edit(embed=new_msg_data)
 
             elif len(queue) == 1:
-                # if type(new_msg_data) == str:
-                #     replymsg = await replymsg.edit(content=f"Playing!")
-                # elif type(new_msg_data) == discord.Embed:
-                #     new_msg_data.set_footer(text="Playing!")
-                #     await replymsg.edit(embed=new_msg_data)
                 await edit_message(replymsg, "Playing!")
             vc = await msg.author.voice.channel.connect()
             await audio_player_thread(queue[0], msg)
-        case "_pause":
+        case "pause":
             if vc == None:
                 await msg.reply("Not in a VC :(")
                 return
@@ -135,7 +128,7 @@ async def on_message(msg):
                 await msg.reply("I'm already paused tho")
                 return
             vc.pause()
-        case "_resume":
+        case "resume":
             if vc == None:
                 await msg.reply("Not in a VC :(")
                 return
@@ -143,7 +136,7 @@ async def on_message(msg):
                 await msg.reply("I'm already playing tho")
                 return
             vc.resume()
-        case "_skip":
+        case "skip":
             if vc == None:
                 await msg.reply("Im not in a VC :(")
                 return
@@ -151,7 +144,7 @@ async def on_message(msg):
             await msg.reply(f"Skipping '{queue[0]['title']}', playing '{queue[1]['title']}'")
             del queue[0]
             await audio_player_thread(queue[0], msg)
-        case "_queue":
+        case "queue":
             replywith = ""
             index = 0
             for i in queue:
@@ -160,7 +153,7 @@ async def on_message(msg):
             if replywith == "":
                 replywith = "Queue is nonexistent."
             await msg.reply(replywith)
-        case "_leave":
+        case "leave":
             if vc == None:
                 await msg.reply("Im not in a VC")
                 return
@@ -170,7 +163,7 @@ async def on_message(msg):
             await vc.disconnect() 
 
             queue.clear()
-        case "_help":
+        case "help":
             await msg.reply("""
 _play {TITLE or URL}: downloads and plays a song/video in VC using youtube and yt-dlp.
 _pause: Pauses the song currently being played.
